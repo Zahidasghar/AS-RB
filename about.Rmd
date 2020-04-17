@@ -1,6 +1,6 @@
 ---
-title: "about"
+title: "About"
 
 ---
 
-# About my website
+# This website is about Applied Econometric using R

@@ -1,0 +1,253 @@
+---
+title: "Panel Data Analysis"
+author: "Zahid Asghar"
+date: "4/8/2020"
+output:
+  html_document: default
+  pdf_document: default
+  word_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE)
+library(stargazer)
+library(tidyverse)
+
+
+```
+
+## Panel Data
+
+
+```{r Fatalities, warning=FALSE,message=FALSE}
+library(AER)
+library(dplyr)
+data("Fatalities")
+#glimpse(Fatalities)
+Fatalities %>% group_by(year) %>% summarise(number=n())
+```
+
+## Manipulaton
+$$ FatalityRate_{it} = \beta_0 + \beta_1 BeerTax_{it} + \beta_2 Z_{i} + u_{it}$$
+$$\widehat{FatalityRate_{i1988} - FatalityRate_{i1982}} = -\underset{(0.065)}{0.072} -\underset{(0.36)}{1.04} \times (BeerTax_{i1988}-BeerTax_{i1982}).$$
+?plm
+You can also embed plots, for example:
+```{r}
+Fatalities<-Fatalities %>% mutate(fatal_rate=fatal/pop*10000)
+fat1982<-Fatalities %>% filter(year==1982)
+fat1988<-Fatalities %>% filter(year==1988)
+
+fat1982_mod<-lm(fatal_rate~beertax,data = fat1982)
+fat1988_mod<- lm(fatal_rate~beertax,data = fat1988)
+library(moderndive)
+library(stargazer)
+get_regression_table(fat1982_mod)
+get_regression_table(fat1988_mod)
+stargazer(fat1982_mod,fat1988_mod,type="text")
+
+```
+
+
+```{r}
+library(ggplot2)
+ggplot(fat1982)+aes(x=beertax,y=fatal_rate)+geom_point()+geom_smooth(method = "lm",se=FALSE)+
+  labs(x = "Beer tax (in 1982 dollars)",
+     y= "Fatality rate (fatalities per 10000)",
+     title = "Traffic Fatality Rates and Beer Taxes in 1982")+
+     ylim(0,4.5)
+
+ggplot(fat1988)+aes(x=beertax,y=fatal_rate)+geom_point()+geom_smooth(method = "lm",se=FALSE)+
+  labs(x = "Beer tax (in 1988 dollars)",
+     y= "Fatality rate (fatalities per 10000)",
+     title = "Traffic Fatality Rates and Beer Taxes in 1982")+
+     ylim(0,4.5)
+
+
+```
+
+
+
+## Panel with two time periods
+
+
+```{r}
+# compute the differences 
+diff_fatal_rate <- fat1988$fatal_rate - fat1982$fatal_rate
+diff_beertax <- fat1988$beertax - fat1982$beertax
+df<-data.frame(diff_fatal_rate,diff_beertax)
+# estimate a regression using differenced data
+fatal_diff_mod <- lm(diff_fatal_rate ~ diff_beertax)
+
+ggplot(df)+aes(x=diff_beertax,y=diff_fatal_rate)+geom_point()+geom_smooth(method = "lm",se=FALSE)+
+  labs(x = "Change in beer tax (in 1988 dollars)",
+     y = "Change in fatality rate (fatalities per 10000)",
+     title = "Changes in Traffic Fatality Rates and Beer Taxes in 1982-1988")+
+     xlim (-0.6,0.6)+ ylim (-1.5,1)
+
+```
+
+
+## Fixed Effect Regression
+
+$$Y_{it} = \beta_0 + \beta_1 X_{it} + \beta_2 Z_i +  u_{it}$$
+$$\begin{align}
+FatalityRate_{it} = \beta_1 BeerTax_{it} + StateFixedEffects + u_{it}, \tag{10.6}
+\end{align}$$
+
+
+```{r}
+library(plm)
+# obtain demeaned data
+Fatalities_demeaned <- Fatalities %>%group_by(state) %>% 
+  mutate(fatal_rate=fatal_rate-mean(fatal_rate),beertax=beertax-mean(beertax))
+  
+  
+  
+  
+# estimate the regression
+summary(lm(fatal_rate ~ beertax - 1, data = Fatalities_demeaned))
+
+# estimate the fixed effects regression with plm()
+fatal_fe_mod <- plm(fatal_rate ~ beertax, 
+                    data = Fatalities,
+                    index = c("state", "year"), 
+                    model = "within")
+
+# print summary using robust standard errors
+coeftest(fatal_fe_mod, vcov. = vcovHC, type = "HC1")
+
+
+
+
+
+```
+
+
+$$\begin{align}
+\widehat{FatalityRate} = -\underset{(0.29)}{0.66} \times BeerTax + StateFixedEffects. \tag{10.7}
+\end{align}$$
+
+### Regression with Time Fixed Effects
+$$Y_{it} = \beta_0 + \beta_1 X_{it} + \delta_2 B2_t + \cdots + \delta_T BT_t + u_{it}$$
+```{r}
+#Via regression method
+fatal_tefe_lm_mod <- lm(fatal_rate ~ beertax + state + year - 1, data = Fatalities)
+fatal_tefe_lm_mod
+# via plm()
+fatal_tefe_mod <- plm(fatal_rate ~ beertax, 
+                      data = Fatalities,
+                      index = c("state", "year"), 
+                      model = "within", 
+                      effect = "twoways")
+
+coeftest(fatal_tefe_mod, vcov = vcovHC, type = "HC1")
+
+```
+
+
+State and Year variables are factors and lm() function generates dummies for these factor variables n + (T-1) = 48 + 6 = 54
+while plm() function just provide estimate of beertax.
+$$\begin{align}
+\widehat{FatalityRate} =  -\underset{(0.35)}{0.64} \times BeerTax + StateEffects + TimeFixedEffects. \tag{10.8}
+\end{align}$$
+
+$$Y_{it} = \beta_1 X_{it} + \alpha_i + u_{it} \ \ , \ \ i=1,\dots,n, \ t=1,\dots,T,$$
+
+```{r}
+# obtain a summary based on heteroskedasticity-robust standard errors 
+# (no adjustment for heteroskedasticity only)
+coeftest(fatal_tefe_lm_mod, vcov = vcovHC, type = "HC1")[1, ]
+# check class of the (plm) model object
+class(fatal_tefe_mod)
+## [1] "plm"        "panelmodel"
+```
+
+
+##
+
+
+
+
+```{r}
+library(stargazer)
+# discretize the minimum legal drinking age
+Fatalities$drinkagec <- cut(Fatalities$drinkage,
+                            breaks = 18:22, 
+                            include.lowest = TRUE, 
+                            right = FALSE)
+
+# set minimum drinking age [21, 22] to be the baseline level
+Fatalities$drinkagec <- relevel(Fatalities$drinkagec, "[21,22]")
+
+# mandadory jail or community service?
+Fatalities$punish <- with(Fatalities, factor(jail == "yes" | service == "yes", 
+                                             labels = c("no", "yes")))
+
+# the set of observations on all variables for 1982 and 1988
+Fatalities_1982_1988 <- Fatalities[with(Fatalities, year == 1982 | year == 1988), ]
+```
+Next, we estimate all seven models using plm().
+```{r}
+# estimate all seven models
+fatalities_mod1 <- lm(fatal_rate ~ beertax, data = Fatalities)
+
+fatalities_mod2 <- plm(fatal_rate ~ beertax + state, data = Fatalities)
+
+fatalities_mod3 <- plm(fatal_rate ~ beertax + state + year,
+                       index = c("state","year"),
+                       model = "within",
+                       effect = "twoways", 
+                       data = Fatalities)
+
+fatalities_mod4 <- plm(fatal_rate ~ beertax + state + year + drinkagec 
+                       + punish + miles + unemp + log(income), 
+                       index = c("state", "year"),
+                       model = "within",
+                       effect = "twoways",
+                       data = Fatalities)
+
+fatalities_mod5 <- plm(fatal_rate ~ beertax + state + year + drinkagec 
+                       + punish + miles,
+                       index = c("state", "year"),
+                       model = "within",
+                       effect = "twoways",
+                       data = Fatalities)
+
+fatalities_mod6 <- plm(fatal_rate ~ beertax + year + drinkage 
+                       + punish + miles + unemp + log(income), 
+                       index = c("state", "year"),
+                       model = "within",
+                       effect = "twoways",
+                       data = Fatalities)
+
+fatalities_mod7 <- plm(fatal_rate ~ beertax + state + year + drinkagec 
+                       + punish + miles + unemp + log(income), 
+                       index = c("state", "year"),
+                       model = "within",
+                       effect = "twoways",
+                       data = Fatalities_1982_1988)
+```
+
+We again use stargazer() (Hlavac, 2018) to generate a comprehensive tabular presentation of the results.
+---
+output: pdf_document
+---
+
+```{r }
+library(stargazer)
+# gather clustered standard errors in a list
+rob_se <- list(sqrt(diag(vcovHC(fatalities_mod1, type = "HC1"))),
+               sqrt(diag(vcovHC(fatalities_mod2, type = "HC1"))),
+               sqrt(diag(vcovHC(fatalities_mod3, type = "HC1"))),
+               sqrt(diag(vcovHC(fatalities_mod4, type = "HC1"))),
+               sqrt(diag(vcovHC(fatalities_mod5, type = "HC1"))),
+               sqrt(diag(vcovHC(fatalities_mod6, type = "HC1"))),
+               sqrt(diag(vcovHC(fatalities_mod7, type = "HC1"))))
+library(gt)
+
+library(huxtable)
+huxreg(fatalities_mod1, fatalities_mod2, fatalities_mod3, 
+          fatalities_mod4, fatalities_mod5, fatalities_mod6, fatalities_mod7)
+# generate the table
+```
+
